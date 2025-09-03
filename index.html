@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>📊 Project Monitoring</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .task-table { margin-top: 10px; }
+    .task-table th, .task-table td { text-align: center; vertical-align: middle; }
+    .btn-task { padding: 0.25rem 0.6rem; margin-left: 6px; }
+  </style>
+</head>
+<body class="bg-light">
+
+<div class="container my-5">
+  <h1 class="mb-4 text-center">📊 Project Monitoring</h1>
+
+  <div id="project-list" class="row g-4"></div>
+
+  <div id="chart-section" class="card mt-5 shadow-sm">
+    <div class="card-body">
+      <h5 class="card-title">📈 Timeline Chart</h5>
+      <canvas id="timelineChart"></canvas>
+    </div>
+  </div>
+
+  <div id="form-section" class="mt-5"></div>
+</div>
+
+<script>
+  let data = { projects: [] };
+
+  const params = new URLSearchParams(window.location.search);
+  const isCrud = params.has("dGFtYmFoIGRhdGEK");
+
+  const container = document.getElementById("project-list");
+  const formSection = document.getElementById("form-section");
+  const chartSection = document.getElementById("chart-section");
+
+  // === Helper simpan ke localStorage ===
+  function saveData() {
+    localStorage.setItem("projectsData", JSON.stringify(data));
+  }
+
+  // === Load data dari localStorage atau fetch dari data.json ===
+  async function loadData() {
+    const saved = localStorage.getItem("projectsData");
+    if (saved) {
+      data = JSON.parse(saved);
+    } else {
+      const res = await fetch("data.json");
+      data = await res.json();
+      saveData();
+    }
+    renderProjects();
+    if (!isCrud) renderChart();
+  }
+
+  // === Render Projects ===
+  function renderProjects() {
+    container.innerHTML = "";
+    data.projects.forEach((project, idx) => {
+      let taskRows = "";
+      project.tasks.forEach((t, tIdx) => {
+        if (isCrud) {
+          taskRows += `
+            <tr>
+              <td>${t.task}</td>
+              <td>${t.date}</td>
+              <td>
+                <button class="btn btn-danger btn-sm btn-task" onclick="deleteTask(${idx},${tIdx})">❌</button>
+              </td>
+            </tr>
+          `;
+        } else {
+          taskRows += `
+            <li class="list-group-item">
+              <strong>${t.task}</strong> - <small>${t.date}</small>
+            </li>
+          `;
+        }
+      });
+
+      const statusField = isCrud ? `
+        <select class="form-select form-select-sm" onchange="updateStatus(${idx}, this.value)">
+          <option value="In Progress" ${project.status === "In Progress" ? "selected" : ""}>In Progress</option>
+          <option value="Completed" ${project.status === "Completed" ? "selected" : ""}>Completed</option>
+          <option value="On Hold" ${project.status === "On Hold" ? "selected" : ""}>On Hold</option>
+          <option value="Canceled" ${project.status === "Canceled" ? "selected" : ""}>Canceled</option>
+        </select>
+      ` : `<span class="badge ${
+        project.status === 'Completed' ? 'bg-success' :
+        project.status === 'Canceled' ? 'bg-danger' : 'bg-warning'
+      }">${project.status}</span>`;
+
+      const tasksSection = isCrud ? `
+        <table class="table table-bordered task-table">
+          <thead>
+            <tr><th>Task</th><th>Tanggal</th><th>Aksi</th></tr>
+          </thead>
+          <tbody>${taskRows}</tbody>
+        </table>
+        <div class="d-flex gap-2 mt-2">
+          <input type="text" class="form-control form-control-sm" placeholder="Nama Task" id="taskName-${idx}">
+          <input type="date" class="form-control form-control-sm" id="taskDate-${idx}">
+          <button class="btn btn-primary btn-sm" onclick="addTask(${idx})">+ Task</button>
+        </div>
+      ` : `<ul class="list-group">${taskRows}</ul>`;
+
+      const card = `
+        <div class="col-md-6">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <h5 class="card-title">${project.name}</h5>
+              <p>Status: ${statusField}</p>
+              <p><small>Start: ${project.start} | End: ${project.end}</small></p>
+              ${tasksSection}
+              ${isCrud ? `<button class="btn btn-danger btn-sm mt-2" onclick="deleteProject(${idx})">🗑 Hapus Project</button>` : ""}
+            </div>
+          </div>
+        </div>
+      `;
+      container.innerHTML += card;
+    });
+    saveData();
+  }
+
+  // === CRUD Functions ===
+  function addProject() {
+    const name = document.getElementById("newName").value;
+    const status = document.getElementById("newStatus").value;
+    const start = document.getElementById("newStart").value;
+    const end = document.getElementById("newEnd").value;
+    if (!name || !start || !end) return;
+    data.projects.push({ name, status, start, end, tasks: [] });
+    renderProjects();
+  }
+
+  function deleteProject(idx) {
+    data.projects.splice(idx, 1);
+    renderProjects();
+  }
+
+  function addTask(idx) {
+    const name = document.getElementById(`taskName-${idx}`).value;
+    const date = document.getElementById(`taskDate-${idx}`).value;
+    if (!name || !date) return;
+    data.projects[idx].tasks.push({ task: name, date });
+    renderProjects();
+  }
+
+  function deleteTask(pIdx, tIdx) {
+    data.projects[pIdx].tasks.splice(tIdx, 1);
+    renderProjects();
+  }
+
+  function updateStatus(idx, newStatus) {
+    data.projects[idx].status = newStatus;
+    renderProjects();
+  }
+
+  // === Chart ===
+  function renderChart() {
+    const ctx = document.getElementById("timelineChart").getContext("2d");
+    const labels = data.projects.map(p => p.name);
+    const durations = data.projects.map(p => {
+      const s = new Date(p.start), e = new Date(p.end);
+      return Math.round((e - s) / (1000 * 60 * 60 * 24));
+    });
+
+    new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{ label: "Durasi (hari)", data: durations, backgroundColor: ["#0d6efd", "#198754", "#ffc107", "#dc3545"] }]
+      },
+      options: {
+        indexAxis: "y",
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: "Hari" } },
+          y: { title: { display: true, text: "Project" } }
+        }
+      }
+    });
+  }
+
+  // === Init ===
+  function init() {
+    loadData();
+    if (isCrud) {
+      chartSection.style.display = "none";
+      formSection.innerHTML = `
+        <h4>➕ Tambah Project</h4>
+        <div class="d-flex gap-2 mt-2">
+          <input type="text" class="form-control" placeholder="Nama Project" id="newName">
+          <select id="newStatus" class="form-select">
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Canceled">Canceled</option>
+          </select>
+          <input type="date" class="form-control" id="newStart">
+          <input type="date" class="form-control" id="newEnd">
+          <button class="btn btn-success" onclick="addProject()">Tambah</button>
+        </div>
+      `;
+    }
+  }
+
+  init();
+</script>
+
+</body>
+</html>
